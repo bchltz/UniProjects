@@ -1,0 +1,577 @@
+---
+title: "DB Call A Bike Rentals"
+subtitle: "Applied Statistics Course Project - Classification"
+author: "Victor Bucholtz"
+output:
+ html_document:
+  code_download: true
+  fig_height: 6
+  fig_width: 10
+  fig_align: center
+  highlight: tango
+  number_sections: yes
+  toc: yes
+  toc_depth: 3
+  toc_float: 
+    collapsed: false
+    smooth_scroll: true 
+  theme: paper
+  df_print: paged
+---
+
+
+```{css, echo=FALSE}
+
+/* css code to change the look of the HTML-output */
+  
+h1 {
+  color: #D0313C;
+  font-size: 200%;
+  }
+h2 {
+  color: #D0313C;
+  font-size: 150%;
+  }
+h3 {
+  font-size: 120%;
+  font-weight: bold;
+  }
+h4 {
+  color: rgb(139, 142, 150);
+  font-size: 100%;
+  font-weight: bold;
+  }
+
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	fig.align = "center"
+)
+```
+
+# Setup
+
+Load packages
+
+```{r}
+# Load packages
+library(tidymodels)
+library(tidyverse)
+library(ranger)
+library(ggpubr)
+```
+
+Load data file
+
+```{r}
+# Import the RData file which contains the df_tageswerte data set
+load(file = "bike_dwd.RData")
+
+# Import data sets for public and school holidays
+#df_feiertage <- read_csv("/Users/victorbucholtz/Documents/Dokumente/University/01_Applied_Statistics/R/Feiertage_Hamburg.csv")
+df_feiertage <- read_csv("Feiertage_Hamburg.csv")
+#df_schulferien <- read_csv("/Users/victorbucholtz/Documents/Dokumente/University/01_Applied_Statistics/R/Schulferien_Hamburg.csv")
+df_schulferien <- read_csv("Schulferien_Hamburg.csv")
+
+```
+
+The data set is filtered for "Hamburg" and stored in a data frame. Afterwards we have a look at the data with glimpse().
+
+```{r}
+df_data <- df_tageswerte %>%
+  filter(CITY_RENTAL_ZONE == "Hamburg")
+
+glimpse(df_data)
+glimpse(df_feiertage)
+glimpse(df_schulferien)
+```
+The data set df_data is already very clean, only the variable "duration" should be converted into a numerical value, because this special date format (date difference) is rather difficult to handle. However, the data set does not contain any categorical variables, so we will generate various categorical features in the next step.
+
+## Create features
+
+We create different categorical features and change data types to investigate classification models / possibilities.
+```{r}
+# Ferien + Feiertag as.Date
+df_schulferien$Ferien <- as.Date(df_schulferien$Ferien, tryFormats = c("%d.%m.%y"))
+df_feiertage$Feiertage <- as.Date(df_feiertage$Feiertage, tryFormats = c("%d.%m.%y"))
+
+# Create the categorical values "Wochenende", "warme_Tage", "Regen", "Feiertag", "Schulferien", "lange_Fahrt" und "freier Tag".
+df_data <- df_data %>%
+  mutate(Wochenende = ifelse(wochentag == 'Samstag' | wochentag == 'Sonntag', 1, 0)) %>%
+  mutate(warme_Tage = ifelse(Temperatur > median(Temperatur), 1, 0)) %>%
+  mutate(Regen = ifelse(Niederschlag > 0, 1, 0))  %>%
+  mutate(Feiertag = ifelse(df_data$dateday %in% df_feiertage$Feiertage, 1, 0)) %>%
+  mutate(Schulferien = ifelse(df_data$dateday %in% df_schulferien$Ferien, 1, 0)) %>%
+  mutate(lange_Fahrt = ifelse(dauer > median(dauer), 1, 0)) %>%
+  mutate(freierTag = ifelse(Feiertag > 0 | Wochenende > 0, "frei", "nichtFrei"))
+
+# Data type conversions of "freierTag" and "dauer"
+df_data$freierTag <- as.factor(df_data$freierTag)
+df_data$dauer = as.double.difftime(df_data$dauer)
+
+glimpse(df_data)
+```
+
+# Business Understanding
+
+We want to train a classification model that can predict whether the day of rental is a day off (weekend or holiday) based on our data.
+
+Possible use cases could be maintenance planning or a determination of the minimum availability of bicycles on free or non-free days.
+
+Our prediction class for free is "frei", for weekend/holiday it is "nichtFrei".
+
+We measure our model performance using the key figure of the harmonic mean "F1" as in this fictitious example we prefer to choose the model which performs overall well.
+
+# Data Splitting
+```{r}
+set.seed(123)
+
+# Split into training and test set
+split_data <- initial_split(df_data, strata = freierTag) 
+train_data <- training(split_data) 
+test_data <- testing(split_data)
+```
+
+# Recipe and functions
+
+## Recipe
+```{r}
+# Recipe definition
+class_rec <- 
+  recipe(freierTag ~ ., # response variable
+         data = train_data) %>%
+  step_rm(dateday, wochentag, Wochenende, Feiertag, FM) %>% # exclude variables which correlate with our response
+  step_dummy(all_nominal(), -all_outcomes()) %>%  # create dummies for categorial variables
+  step_zv(all_predictors()) %>% # remove variables that contain only a single value
+  step_corr(all_predictors()) # remove variables that have large absolute correlations with other variables
+```
+
+## Functions
+Define functions for Recall, Precision and F1
+```{r}
+
+# Recall
+func_recall <- function(TP, FN) {
+  (TP / ( TP + FN))
+}
+
+# Precision
+func_precision <- function(TP, FP) {
+  (TP / (TP + FP))
+}
+
+# F1
+func_f_meas <- function(precision, recall) {
+  2 * precision * recall / (precision + recall)
+}
+
+```
+
+# Data Exploration & statistics
+
+In this step, we take a look at the distribution of our rentals on free/non-free days.
+```{r}
+table(train_data$freierTag)
+
+283 / (283 + 642) # percentage of free days
+```
+30.6% of our days are free days.
+
+```{r}
+train_data %>%
+  group_by(freierTag) %>%
+  summarize(rentals=sum(rentals))
+
+1867011 / (1867011+4853468) # percentage of rentals on free days
+```
+27.8% of our rentals are on free days. This shows that there are a bit less rentals on free days.
+
+Now we compare the mean duration (in minutes) for our category.
+```{r}
+train_data %>%
+  group_by(freierTag) %>%
+  summarize(dauer=mean(dauer))
+```
+While there are less rentals on free days, the mean duration is higher by 5.3 minutes per rental.
+
+Let´s have look at the distribution of our rentals depending on the temperature and divide the observations into free and non-free days. Our calculations above on the distribution seem to be evident here as well.
+```{r}
+train_data %>%
+  ggplot(aes(x = Temperatur, y = rentals, color = freierTag)) +
+  ggtitle(label = "Distribution of rentals (free and non-free)") +
+  geom_point() +
+  theme_light()
+```
+
+The mean temperatures of free and non-free days are (as expected) almost equal. The histograms of the temperature distribution of the rentals don´t show any differences at first glance as well.
+```{r}
+train_data %>%
+  group_by(freierTag) %>%
+  summarise(Temperatur = mean(Temperatur))
+
+train_data %>%
+  ggplot(aes(x = Temperatur)) + 
+  geom_histogram(fill = "#006EA1", bins = 20) + 
+  theme_light() +
+  facet_grid(facets = train_data$freierTag)
+```
+
+While there are less rentals on free days, the duration per rent is higher (duration outliers are removed from the plot).
+```{r}
+# plot of rentals
+plot_rentals <- train_data %>%
+  ggplot(aes(x = freierTag, y = rentals, fill = freierTag)) + 
+  geom_boxplot(show.legend = FALSE) + 
+  theme_light() +  
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  labs(labels = FALSE, title = "Boxplots of rentals and duration")
+
+#remove outliers and save results in own object for our plot
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+
+outlier_data <- train_data
+outlier_data$dauer <- remove_outliers(outlier_data$dauer, na.rm=TRUE)
+
+# plot of the duration  
+plot_duration <- outlier_data %>%
+  ggplot(aes(x = freierTag, y = dauer, fill = freierTag)) + 
+  geom_boxplot(show.legend = FALSE) + 
+  theme_light()
+
+# Both plots in one graphic
+ggarrange(plot_rentals, plot_duration, nrow = 2)
+```
+
+# Modelle
+
+## K-fold cross-validation
+
+Due to the amount of observations we prepare a 5-fold cross-validation
+
+```{r}
+set.seed(123)
+
+cv_folds <- vfold_cv(train_data, v=5, strata = freierTag)
+```
+
+## Logistic Regression
+
+### Set Engine
+```{r}
+lr_mod <- 
+  logistic_reg() %>% 
+  set_engine("glm")
+```
+
+### Fit Model
+```{r}
+bike_wflow_lr_mod <- 
+  workflow() %>% 
+  add_model(lr_mod) %>% 
+  add_recipe(class_rec)
+
+bike_wflow_lr_mod
+```
+
+### Train Model
+```{r}
+bike_fit_lr_mode <- 
+  bike_wflow_lr_mod %>% 
+  fit_resamples(cv_folds, control = control_resamples(save_pred = TRUE)) 
+
+bike_fit_lr_mode
+```
+
+### Show and save results
+```{r}
+# Predictions
+predictions_lr <- collect_predictions(bike_fit_lr_mode, summarize = TRUE)
+predictions_lr
+
+# Confusion Matrix for folds
+conf_mat_lr <- conf_mat_resampled(bike_fit_lr_mode)
+conf_mat_lr
+
+# Metrics
+collect_metrics(bike_fit_lr_mode, summarize = FALSE)
+metrics_lr <- collect_metrics(bike_fit_lr_mode, summarize = TRUE)
+metrics_lr
+
+# Precision, Recall and F1
+precision_lr <- precision(predictions_lr, truth = predictions_lr$freierTag, estimate = predictions_lr$.pred_class)
+precision_lr
+
+recall_lr <- recall(predictions_lr, truth = predictions_lr$freierTag, estimate = predictions_lr$.pred_class)
+recall_lr
+
+fmeas_lr <- func_f_meas(precision_lr$.estimate, recall_lr$.estimate)
+fmeas_lr
+
+# Save in result tibble
+Ergebnisse_class <- tibble(Model = "Logistische Regression", 
+                           roc_auc = metrics_lr$mean[2], 
+                           accuracy = metrics_lr$mean[1],
+                           recall = recall_lr$.estimate,
+                           precision = precision_lr$.estimate,
+                           fmeas = fmeas_lr
+                           )
+```
+
+### ROC graph
+```{r}
+bike_fit_lr_mode %>%
+  collect_predictions() %>%
+  group_by(id) %>%
+  roc_curve(freierTag, .pred_frei) %>%
+  ggplot(aes(1 - specificity, sensitivity, color = id)) +
+  geom_abline(lty = 2, color = "gray80", size = 1.5) +
+  geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2) +
+  coord_equal()
+```
+The ROC and Accuracy values of the individual folds fluctuate visibly, as can be seen in the plot. The ROC values are between 0.778 and 0.951 with a mean ROC of 0.847, the Accuracy values are between 0.730 and 0.891 with a mean of 0.794. Considering that in the training data set we have only 925 observations distributed over 5 folds, the individual fold composition can indeed be very different. Another reason could be that our model is not very robust and reacts strongly to slight fluctuations.
+
+## Random Forest
+
+### Set engine
+```{r}
+rf_mod <- 
+  rand_forest() %>% 
+  set_engine("ranger") %>%  
+  set_mode("classification")
+```
+
+### Fit Model
+```{r}
+bike_wflow_rf_mod <- 
+  workflow() %>% 
+  add_model(rf_mod) %>% 
+  add_recipe(class_rec)
+
+bike_wflow_rf_mod
+```
+
+### Train Model
+```{r}
+bike_fit_rf_mode <- 
+  bike_wflow_rf_mod %>% 
+  fit_resamples(cv_folds, control = control_resamples(save_pred = TRUE))
+
+bike_fit_rf_mode
+```
+
+### Save and show results
+```{r}
+# Predictions
+predictions_rf <- collect_predictions(bike_fit_rf_mode, summarize = TRUE)
+predictions_rf
+
+# Confusion Matrix for folds
+conf_mat_rf <- conf_mat_resampled(bike_fit_rf_mode)
+conf_mat_rf
+
+# Metrics
+collect_metrics(bike_fit_rf_mode, summarize = FALSE)
+metrics_rf <- collect_metrics(bike_fit_rf_mode, summarize = TRUE)
+metrics_rf
+
+# Precision, Recall and F1
+precision_rf <- precision(predictions_rf, truth = predictions_rf$freierTag, estimate = predictions_rf$.pred_class)
+precision_rf
+
+recall_rf <- recall(predictions_rf, truth = predictions_rf$freierTag, estimate = predictions_rf$.pred_class)
+recall_rf
+
+fmeas_rf <- func_f_meas(precision_rf$.estimate, recall_rf$.estimate)
+fmeas_rf
+
+# Add to result tibble
+Ergebnisse_class <- Ergebnisse_class %>%
+                           add_row(Model = "Random Forest", 
+                           roc_auc = metrics_rf$mean[2], 
+                           accuracy = metrics_rf$mean[1],
+                           recall = recall_rf$.estimate,
+                           precision = precision_rf$.estimate,
+                           fmeas = fmeas_rf
+                           )
+```
+
+### ROC graph
+```{r}
+bike_fit_rf_mode %>%
+  collect_predictions() %>%
+  group_by(id) %>%
+  roc_curve(freierTag, .pred_frei) %>%
+  ggplot(aes(1 - specificity, sensitivity, color = id)) +
+  geom_abline(lty = 2, color = "gray80", size = 1.5) +
+  geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2) +
+  coord_equal()
+```
+Compared to our first model, the fluctuations of the Random Forest Model are visibly lower. Therefore, the individual folds seem to have a much smaller influence on the model performance. At first glance, the model seems more robust than the logistic regression model. The values for ROC are between 0.897 and 0.969 with a mean of 0.936, for accuracy between 0.853 and 0.919 with a mean of 0.885.
+
+## Boosted tree (XGBoost)
+
+###Set engine
+```{r}
+xgb_mod <- 
+  boost_tree() %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+```
+
+### Fit Model
+```{r}
+bike_wflow_xgb_mod <- 
+  workflow() %>% 
+  add_model(xgb_mod) %>% 
+  add_recipe(class_rec)
+
+bike_wflow_xgb_mod
+```
+
+### Train Model
+```{r}
+bike_fit_xgb_mode <- 
+  bike_wflow_xgb_mod %>% 
+  fit_resamples(cv_folds, control = control_resamples(save_pred = TRUE))
+
+bike_fit_xgb_mode
+```
+
+### Show and save results
+```{r}
+# Predictions
+predictions_xgb <- collect_predictions(bike_fit_xgb_mode)
+predictions_xgb
+
+# Confusion Matrix for folds
+conf_mat_xgb <- conf_mat_resampled(bike_fit_xgb_mode)
+conf_mat_xgb
+
+# Metrics
+collect_metrics(bike_fit_xgb_mode, summarize = FALSE)
+metrics_xgb <- collect_metrics(bike_fit_xgb_mode, summarize = TRUE)
+metrics_xgb
+
+# Precision, Recall and F1
+precision_xgb <- precision(predictions_xgb, truth = predictions_xgb$freierTag, estimate = predictions_xgb$.pred_class)
+precision_xgb
+
+recall_xgb <- recall(predictions_xgb, truth = predictions_xgb$freierTag, estimate = predictions_xgb$.pred_class)
+recall_xgb
+
+fmeas_xgb <- func_f_meas(precision_xgb$.estimate, recall_xgb$.estimate)
+fmeas_xgb
+
+# Add to result tibble
+Ergebnisse_class <- Ergebnisse_class %>%
+                           add_row(Model = "XGBoost", 
+                           roc_auc = metrics_xgb$mean[2], 
+                           accuracy = metrics_xgb$mean[1],
+                           recall = recall_xgb$.estimate,
+                           precision = precision_xgb$.estimate,
+                           fmeas = fmeas_xgb
+                           )
+```
+
+
+### ROC
+```{r}
+bike_fit_xgb_mode %>%
+  collect_predictions() %>%
+  group_by(id) %>%
+  roc_curve(freierTag, .pred_frei) %>%
+  ggplot(aes(1 - specificity, sensitivity, color = id)) +
+  geom_abline(lty = 2, color = "gray80", size = 1.5) +
+  geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2) +
+  coord_equal()
+```
+In this model, the fluctuations are again significantly lower with a range of 0.913 - 0.953 (mean: 0.938) for ROC and 0.859 - 0.909 (mean: 0.892) for accuracy, making the model even more robust than the random forest model.
+
+# Evaluation and final model
+
+## Results of all models
+As our results show, the performance of the "XGBoost" model is best on the training data across almost all parameters. In the Business Understanding we have chosen "F1" as the selection parameter. So we will choose XGBoost and train and evaluate the test data with it.
+```{r}
+Ergebnisse_class
+```
+
+## Fit with test data
+```{r}
+final_model <- bike_wflow_xgb_mod %>% 
+  last_fit(split_data)
+```
+
+## ROC, Accuracy, Recall, Precision, F1
+```{r}
+# Collect Metrics and Predictions
+metrics_final <- collect_metrics(final_model)
+
+conf_mat_final <- collect_predictions(final_model) %>%
+  conf_mat(freierTag, .pred_class)
+
+# Berechnung von Recall, Precision und F1
+recall_final <- func_recall(conf_mat_final$table[1, 1], conf_mat_final$table[1, 2])
+precision_final <- func_precision(conf_mat_final$table[1, 1], conf_mat_final$table[2, 1])
+fmeas_final <- func_f_meas(precision_final, recall_final)
+
+# Speichern in einer Ergebnistabelle
+Ergebnisse_final <- tibble(Model = "Final XGBoost", 
+                          roc_auc = metrics_final$.estimate[2], 
+                          accuracy = metrics_final$.estimate[1],
+                          recall = recall_final,
+                          precision = precision_final,
+                          fmeas = fmeas_final
+                          )
+
+Ergebnisse_final
+```
+
+### ROC graph
+```{r}
+final_model %>%
+  collect_predictions() %>%
+  roc_curve(freierTag, .pred_frei) %>%
+  ggplot(aes(1 - specificity, sensitivity)) +
+  geom_abline(lty = 2, color = "gray80", size = 1.5) +
+  geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2, color = "#006EA1") +
+  coord_equal()
+```
+
+### PR curve
+```{r}
+final_model %>%
+  collect_predictions() %>%
+  pr_curve(freierTag, .pred_frei) %>%
+  ggplot(aes(x = recall, y = precision)) +
+  geom_path(show.legend = FALSE, alpha = 0.6, size = 1, color = "#006EA1") +
+  coord_equal()
+```
+
+## Summary
+As the results show, the performance of our XGBoost model on the test data is even better than on the training data in some parameters. But basically the results are very similar and therefore in our test it can be assumed that the model is robust and reliable.
+```{r}
+Ergebnisse_final <- Ergebnisse_final %>%
+                           add_row(Model = "Training XGBoost", 
+                           roc_auc = metrics_xgb$mean[2], 
+                           accuracy = metrics_xgb$mean[1],
+                           recall = recall_xgb$.estimate,
+                           precision = precision_xgb$.estimate,
+                           fmeas = fmeas_xgb
+                           )
+Ergebnisse_final
+```
+

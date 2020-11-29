@@ -1,0 +1,154 @@
+---
+title: "DB Call A Bike Rentals"
+subtitle: "Preparation of data set"
+author: "Victor Bucholtz"
+output:
+ html_document:
+  code_download: true
+  fig_height: 4
+  fig_width: 4
+  highlight: tango
+  number_sections: yes
+  toc: yes
+  toc_depth: 3
+  toc_float: 
+    collapsed: false
+    smooth_scroll: true 
+  theme: paper
+  df_print: paged
+---
+
+
+```{css, echo=FALSE}
+
+/* css code to change the look of the HTML-output */
+  
+h1 {
+  color: #D0313C;
+  font-size: 200%;
+  }
+h2 {
+  color: #D0313C;
+  font-size: 150%;
+  }
+h3 {
+  font-size: 120%;
+  font-weight: bold;
+  }
+h4 {
+  color: rgb(139, 142, 150);
+  font-size: 100%;
+  font-weight: bold;
+  }
+
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+
+# Setup
+
+Load packages
+
+```{r}
+
+# Load packages
+library(tidyverse)
+library(stringi)
+```
+
+# Import data
+
+Load the data from two different sources.
+
+```{r}
+
+# Create the link
+
+linkcab = "/Users/victorbucholtz/Documents/Dokumente/University/01_Applied_Statistics/R/dbset/OPENDATA_BOOKING_CALL_A_BIKE.csv"
+linkdwd = "/Users/victorbucholtz/Documents/Dokumente/University/01_Applied_Statistics/R/Wetterdaten/dwd_day.csv"
+
+# Import data. All individual bike sharing rentals from the DB Call A Bike csv file will be stored in the data frame df_bike. The dwd_day.csv contains weather data (e.g. max temperature and total rainfall per day) for Hamburg, Berlin, Köln, München and Frankfurt am Main and will be stored in the data frame df_dwd.
+
+df_bike <- read_csv2(linkcab)
+df_dwd <- read_csv2(linkdwd)
+
+# Only keep entries for the cities München, Berlin, Hamburg, Frankfurt am Main and Köln, as the export from "Deutsche Wetter Dienst" only contains weather data for those cities.
+
+df_bike <- df_bike %>%
+  dplyr::filter(CITY_RENTAL_ZONE %in% c("Berlin", "München", "Hamburg", "Köln", "Frankfurt am Main"))
+
+```
+
+# Data structure
+
+```{r}
+
+# Take a look at the data
+glimpse(df_bike)
+
+glimpse(df_dwd)
+
+```
+
+Already in this step it is necessary to create additional data frames and connect the data sets with each other, since the investigations and analyses of the rentals should be measured on a daily numbers and are strongly linked to the weather data. To enable the linking of the data sets, we have to edit some data types and add variables which enable the connection.
+
+```{r}
+
+# Change data types of variable "Temperatur" to numeric and "Stadt" to factor. Before "Messdatum" can be set as a date, we need to modify the string. 
+
+stri_sub(df_dwd$Messdatum, 5, 4) <- "-"
+stri_sub(df_dwd$Messdatum, 8, 7) <- "-"
+stri_sub(df_dwd$Messdatum, 11, 10) <- " "
+df_dwd$Messdatum <- as.Date(df_dwd$Messdatum)
+
+df_bike$CITY_RENTAL_ZONE <- as.factor(df_bike$CITY_RENTAL_ZONE)
+
+df_dwd$Stadt <- as.factor(df_dwd$Stadt)
+df_dwd <- df_dwd %>%
+  mutate_if(is.character, as.double) %>%
+  select(-eor)
+
+# Create variables "dateday" (= Date of the booking without time), "startzeit" (= date of booking, time rounded to hour), "dauer" (= duration of rental in minutes rounded to full minutes), "rentals" (= amount of rentals, this variable is needed to aggregate daily rentals)
+df_bike <- df_bike %>%
+  mutate(dateday = as.Date(df_bike$DATE_BOOKING)) %>%
+  mutate(wochentag = weekdays(as.Date(dateday))) %>%
+  mutate(startzeit = round.POSIXt(df_bike$DATE_FROM, units = "hours")) %>%
+  mutate(dauer = round(difftime(df_bike$DATE_UNTIL, df_bike$DATE_FROM, units='mins'), digits = 0)) %>%
+  mutate(rentals = 1)
+
+# Create df_tageswerte which contains the aggregated data per day and join it with the weather data from df_dwd
+df_tageswerte <- select(df_bike, dateday, rentals, CITY_RENTAL_ZONE, dauer)
+df_tageswerte <- df_tageswerte %>%
+  group_by(dateday, CITY_RENTAL_ZONE) %>% 
+  dplyr::summarise(rentals=sum(rentals), dauer=mean(dauer)) %>%
+  ungroup()
+df_tageswerte$wochentag <- as_factor(weekdays(as.Date(df_tageswerte$dateday)))
+df_tageswerte$wochentag <- factor(df_tageswerte$wochentag,levels = c("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"))
+df_dwd
+df_tageswerte
+# Join the data frames
+df_tageswerte <- 
+  inner_join(df_tageswerte, df_dwd, by = c("dateday" = "Messdatum", "CITY_RENTAL_ZONE" = "Stadt"))
+
+# Take a look at the data
+glimpse(df_tageswerte)
+
+```
+
+# Save as RData file
+
+```{r}
+
+# save as RData file. It can be loaded and imported via load()
+
+save(df_tageswerte, file = "/Users/victorbucholtz/Documents/Dokumente/University/01_Applied_Statistics/R/bike_dwd.RData")
+
+```
