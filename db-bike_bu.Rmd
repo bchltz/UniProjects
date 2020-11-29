@@ -4,6 +4,7 @@ subtitle: "Applied Statistics Course Project - Regression"
 author: "Victor Bucholtz"
 output:
  html_document:
+  code_folding: hide
   code_download: true
   fig_height: 6
   fig_width: 10
@@ -25,11 +26,11 @@ output:
 /* css code to change the look of the HTML-output */
   
 h1 {
-  color: #D0313C;
+  color: #323DD2;
   font-size: 200%;
   }
 h2 {
-  color: #D0313C;
+  color: #323DD2;
   font-size: 150%;
   }
 h3 {
@@ -96,7 +97,6 @@ load(file = "bike_dwd.RData")
 ```{r}
 # Take a look at the data
 glimpse(df_tageswerte)
-table(df_tageswerte$CITY_RENTAL_ZONE)
 ```
 We have 21 variables, most of them are "doubles". The data types of the set df_tageswerte are fine, we need to keep in mind that the variable "duration" is in a specific date format (date difference) and could be rather difficult to handle. We might adjust that if needed.
 
@@ -130,13 +130,14 @@ df_expl <- df_train
 
 ### Study attributes
 
-Study each attribute and it's characteristics:
 
+As mentioned above, we have 21 variables with a total of 4363 observations spread over five cities (CITY_RENTAL_ZONE). The data set contains data for the period from 2014-01-01 to 2017-05-16 with 0 missing values for our key variables "rentals" and "Temperatur". Only the variable "SDK" has 8 missing values. We can observe potential outliers for several features from the weather data set which all have a p0 of -999.
+
+The mean value of "rentals" is 2433 with sd 3002 and a median of 1193.
+The mean value of "Temperatur" is 15.1 with sd 8.15 and a median of 14.7.
 ```{r}
-
 # Data overview with skim()
 df_expl %>% skim()
-
 ```
 
 ### Visualize data
@@ -145,16 +146,17 @@ Visualize the data.
 
 Scatterplot:
 
+This scatterplot visualizes all rentals by temperature. At first sight it looks like there are two linear progressions: a dense block at the bottom in the range of 0 to about 2500 rentals and a block from 0 to 15000 rentals. This may be related to different rentals in different cities and will be investigated in more detail later.
 ```{r}
 df_expl %>%
   ggplot(aes(x = Temperatur, y = rentals)) +
   geom_point(color = '#006EA1') +
   theme_light()
-
 ```
 
-Let´s take a look at the distribution per city:
 
+Let´s take a look at the distribution per city.
+As just suspected, the distribution of rentals in the individual cities is very different. Hamburg stands out particularly here with 6,843,156 rentals. This explains the two linear clusters in the previous scatterplot. However, across all cities, one can assume a purely visual correlation between temperature and rentals.
 ```{r}
 df_expl %>%
   ggplot(aes(x = Temperatur, y = rentals)) +
@@ -167,14 +169,15 @@ df_expl %>% group_by(CITY_RENTAL_ZONE) %>% dplyr::summarise(sum(rentals))
 
 ```
 
-Histogram:
 
+### Statistic and exploration
+
+Let´s start with a quick histogram overview over all variables. For our closer analysis we will pick "Temperatur", "dauer", "rentals" and "Niederschlag".
 ```{r}
-
 plot_num(df_expl)
-
 ```
 
+We will start with "Temperatur". In the next histogram we look at the distribution. The curve is not completely normally distributed since there are two peaks. The reason could be that there are two clusters (one at around 13, the other at around 20 degree) of temperatures which appeared often within that year.
 ```{r}
 df_expl %>%
   ggplot(aes(x = Temperatur)) +
@@ -182,10 +185,18 @@ df_expl %>%
   theme_light()
 ```
 
+The temperature range is from -9.1 to 38.8 with a median of 14.7. Lower and upper quartiles goes from 8.9 to 21.2.
+```{r}
+df_expl %>%
+  ggplot(aes(y = Temperatur)) + 
+  geom_boxplot(fill = '#006EA1')
+```
+
+Next, we look at a histogram of the duration of the rentals (variable: "dauer"). But first we have to remove the outliers, because there is a maximum value of 51329 minutes. This would be over 35 days, which would indicate a measurement error for the rental principle of Call-A-Bike (short-term, inner-city rentals from A to B).
+The duration is right skewed. This was expected with a median of 23.33 minutes, since values in the range of 60 and more minutes are not unlikely.
 ```{r}
 
 # Filter outliers to increase readability of plots
-
 remove_outliers <- function(x, na.rm = TRUE, ...) {
   qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
   H <- 1.5 * IQR(x, na.rm = na.rm)
@@ -198,37 +209,57 @@ remove_outliers <- function(x, na.rm = TRUE, ...) {
 df_outlier <- df_expl
 
 df_outlier$dauer <- remove_outliers(df_outlier$dauer, na.rm=TRUE)
+skim(df_outlier$dauer)
 
 # Histogram of "dauer" (duration in minutes)
-
 df_outlier %>%
   ggplot(aes(x = dauer)) +
   geom_histogram(bins = 100, fill = '#006EA1') +
   theme_light() 
-
 ```
 
+The duration ranges from 1 to 63.47 minutes (removed outliers) with a median of 23.33. As expected the outliers appear more over the upper quartile, as short rentals are more likely than longer ones. The next plot shows the duration per weekday for Hamburg. It´s visible that weekend rentals have a longer duration than during the week.
 ```{r}
-df_expl %>%
-  mutate(month = format(dateday, "%m")) %>%
-  group_by(month) %>%
-  dplyr::summarise(Niederschlag=sum(Niederschlag)) %>%
-  ggplot(aes(x = month, y = Niederschlag)) +
-  geom_col(fill = '#006EA1') +
-  theme_light()
+df_outlier %>%
+  filter(CITY_RENTAL_ZONE == "Hamburg") %>%
+  ggplot(aes(x = wochentag, y=dauer, fill = wochentag)) +
+  geom_boxplot() +
+  ggtitle(label = "Duration per weekday (City = Hamburg)") + 
+  theme_light() +
+  theme(plot.title = element_text(hjust = 0.5, lineheight = 0.8, face = "bold")) +
+  xlab("Wochentag") +
+  ylab("Dauer") +
+  theme(legend.position = "none") 
+
+# Total amount of rentals per weekday
+df_expl %>% 
+  group_by(wochentag) %>% 
+  dplyr::summarise(median(dauer))
+
 ```
 
+The next histogram shows the rentals of the respective cities. For Frankfurt am Main and Hamburg we can see a clearly right-skewed course.
 ```{r}
 df_expl %>%
   ggplot(aes(x = rentals)) +
-    geom_histogram(bins = 30, fill = '#006EA1') +
+    geom_histogram(bins = 15, fill = '#006EA1') +
     theme_light() +
     facet_grid(cols = vars(CITY_RENTAL_ZONE), scales="free") 
-
 ```
 
-Boxplot:
+In this boxplot we can once again see the big differences in rentals between Hamburg and the other four cities very clearly. It is also easy to see how the respective lower and upper quartiles are evenly distributed across the cities. Our rentals per day go from 1 to 15119 while 1 seems to be an outlier. For Hamburg alone the range goes from 637 to 15119 with a median of 6973 (p25 = 4964 and p75 = 9421).
+```{r}
+df_expl %>%
+  filter(CITY_RENTAL_ZONE == "Hamburg") %>%
+  skim(rentals)
 
+df_expl %>%
+  ggplot(aes(x = CITY_RENTAL_ZONE, y = rentals)) +
+    geom_boxplot(fill = '#006EA1') +
+    theme_light()
+```
+
+The next boxplot shows the rentals per weekday for the city of Hamburg. The median rises slowly from Monday to Friday and then falls again significantly until Sunday.
 ```{r}
 df_expl %>%
   filter(CITY_RENTAL_ZONE == "Hamburg") %>%
@@ -249,114 +280,90 @@ df_expl %>%
 
 ```
 
-
+In the next bar chart for our variable "Niederschlag" we see the precipitation/day distributed over the individual calendar months. Interestingly, more precipitation was measured in the warmer months.
 ```{r}
-df_outlier %>%
-  filter(CITY_RENTAL_ZONE == "Hamburg") %>%
-  ggplot(aes(x = wochentag, y=dauer, fill = wochentag)) +
-  geom_boxplot() +
-  ggtitle(label = "Duration per weekday (City = Hamburg)") + 
-  theme_light() +
-  theme(plot.title = element_text(hjust = 0.5, lineheight = 0.8, face = "bold")) +
-  xlab("Wochentag") +
-  ylab("Dauer") +
-  theme(legend.position = "none") 
+df_expl %>%
+  mutate(month = format(dateday, "%m")) %>%
+  group_by(month) %>%
+  dplyr::summarise(Niederschlag=sum(Niederschlag)) %>%
+  ggplot(aes(x = month, y = Niederschlag)) +
+  geom_col(fill = '#006EA1') +
+  theme_light()
+```
 
-# Total amount of rentals per weekday
-df_expl %>% 
-  group_by(wochentag) %>% 
-  dplyr::summarise(median(dauer))
-
+Now we take a look at the cities where the most precipitation was measured. Hamburg is on the first place with almost 500 days and has more than 20% more rainy days compared to Berlin, Frankfurt am Main or München.
+```{r}
+df_expl %>%
+  filter(Niederschlag > 0) %>%
+  ggplot(aes(x = CITY_RENTAL_ZONE)) +
+  geom_bar(fill = '#006EA1')
 ```
 
 # Data preparation & correlations
 
-## Fokussierung auf Hamburg
+## Filter "Hamburg"
 
-Due to the huge amount of rentals for/in Hamburg (which might influence the correlation) we will exclude all other cities from the data frames df_expl, df_split, df_train and df_test.
-
+Due to the huge amount of rentals for/in Hamburg we will exclude all other cities. Else we´d need to use the many models principle.
+We will perform a fresh initial split as this huge data exclusion will have a big impact on our data set composition.
 ```{r}
-df_expl <- df_expl %>%
-  filter(CITY_RENTAL_ZONE == "Hamburg")
-
-df_train <- df_train %>%
-    filter(CITY_RENTAL_ZONE == "Hamburg")
-
-df_test <- df_test %>%
-    filter(CITY_RENTAL_ZONE == "Hamburg")
-
-
-#### TEST
-
-set.seed(123)
-
-df_tageswerte <- df_tageswerte %>%
-    filter(CITY_RENTAL_ZONE == "Hamburg")
-
-df_split <- initial_split(df_tageswerte) 
-df_train <- training(df_split) 
-df_test <- testing(df_split)
+ set.seed(123)
+ 
+ df_tageswerte <- df_tageswerte %>%
+     filter(CITY_RENTAL_ZONE == "Hamburg")
+ 
+ df_split <- initial_split(df_tageswerte) 
+ df_train <- training(df_split) 
+ df_test <- testing(df_split)
 ```
 
 ## Correlations
 
-Study correlations:
-
+In this step we study our correlations. Our defined response variable "rentals" has the highest correlation with "Temperatur". 
 ```{r}
 df_cor <- df_expl[sapply(df_expl, is.numeric)]
-glimpse(df_cor)
 cor(df_cor)
 ```
 
-Our defined response variable "rentals" has the highest correlation with "Temperatur". We will have a closer look at those two variables and add "Niederschlag", "PM" and "FX", as those could be possible additional predictors for our models. All other variables have a too high correlation with "Temperatur" and excluded.
-
+We will have a closer look at "rentals" and "Temperatur" two variables and add "Niederschlag", "PM" and "FX", as those could be possible additional predictors for our models. All other variables have a too high correlation with "Temperatur" and therefore we exclude them.
 ```{r}
-# Let´s have a closer look at 
-ggpairs(data = df_cor, columns=c("rentals", "Temperatur", "Niederschlag", "PM", "FX"), title="ggpairs plot")
-
+ggpairs(data = df_cor, columns=c("rentals", "Temperatur", "Niederschlag", "PM", "FX"), title="Analysis of several variables")
 ```
-
 The ggpairs plot shows us that we shouldn´t use "Temperatur" + "Niederschlag" as predictors as the p-value isn´t < 0,05 and therefor we cannot exclude a significant relationship between those variables. In the next chapter we will use "Temperatur", "PM" and "FX" for your model tests.
 
 Correlation plot:
-
 ```{r}
-
 df_expl[sapply(df_expl, is.numeric)] %>%
   cor %>%
   {.[order(abs(.[, 1]), decreasing = TRUE), 
       order(abs(.[, 1]), decreasing = TRUE)]} %>%
     corrplot(method = "circle", type="upper")
-
 ```
 
 Correlations with statistical significance:
 
+Our correlation coefficient (0.798) indicates a very good positive linear relationship between our variables "Temperature" and "rentals". Since we have hardly any outliers in our rentals, we calculate the correlation according to Pearson. With a p-value <2.2e-16 the feature "Temperatur" is significant and as it´s <0.05 we can reject the null hypothesis of r=0.
 ```{r}
-
 cor.test(df_expl$Temperatur, df_expl$rentals, 
          method = "pearson")
-
 ```
 
-
-We don't cover this topic (feature engineering) in this example.  
+# Feature engineering
+Feature engineering took part in the preparation of the data set and is covered in the other project markdown document.
 
 # Modeling
+In this chapter, we will build and train four models:
 
-We want to use three different regression models:
-
-1. simple linear regression.
-2. natural spline in conjunction with a linear regression model,
-3. xgboost model.
+1. Simple Linear Regression
+2. Natural Spline
+3. XGBoost Model
 4. Lasso regression
 
-We use k-fold cross-validation to identify the best model.
+As described in the chapter "Business Understanding" we will compare the models by the key value RMSE. Additionally, we use k-fold cross-validation to identify the best model.
+
 
 ## K-fold cross-validation
 
 Prepare 10-fold cross-validation
-
 ```{r}
 
 set.seed(123)
@@ -367,11 +374,13 @@ cv_folds <- vfold_cv(df_train, v=10)
 
 ## Linear regression model
 
-Test 1: Using "Temperatur" as the only predictor.
+Before we train our first model (Simple Linear Regression) we first examine three different predictor variants.
+The three key indices we check are F-Statistic, P-Value and R2-adjusted.
 
+Test 1: Using "Temperatur" as the only predictor.
 ```{r}
 
-fit <- lm(rentals ~ Temperatur, data = df_train[sapply(df_train, is.numeric)])
+fit <- lm(rentals ~ Temperatur, data = df_train)
 
 summary(fit)
 
@@ -384,10 +393,9 @@ plot(fit,
 ```
 
 Test 2: Using "Temperatur" + "PM" as predictors.
-
 ```{r}
 
-fit <- lm(rentals ~ Temperatur + PM, data = df_train[sapply(df_train, is.numeric)])
+fit <- lm(rentals ~ Temperatur + PM, data = df_train)
 
 summary(fit)
 
@@ -400,9 +408,8 @@ plot(fit,
 ```
 
 Test 3: Using "Temperatur" + FX as predictors.
-
 ```{r}
-fit <- lm(rentals ~ Temperatur + FX, data = df_train[sapply(df_train, is.numeric)])
+fit <- lm(rentals ~ Temperatur + FX, data = df_train)
 
 summary(fit)
 
@@ -417,8 +424,7 @@ Since the slightly better R2 value does not compensate for the disadvantages of 
 
 ### Specify model
 
-Specify the model:
-
+Specification which package/system will be used for the model. In this case we train a linear regression model using the lm engine with the mode "regression".
 ```{r}
 lm_mod <- 
   linear_reg() %>% 
@@ -427,7 +433,7 @@ lm_mod <-
 ```
 
 ### Fit the model
-
+In this step we define the response variable (rentals) and the predictor (Temperatur). The model is trained with resampling (ten folds (cv_folds)).
 ```{r}
 lm_fit <-
   lm_mod %>% 
@@ -437,20 +443,21 @@ lm_fit <-
 
 ### Model evaluation
 
-Obtain model summary:
-
+The RMSE of the fold ranges from 1565 to 2053 with an average of 1831 and a standard error of 52.1. R2 averages 0.643.
 ```{r}
 # Performance measures for every fold
 collect_metrics(lm_fit, summarize = FALSE)
 
 # Average performance accross all folds
 collect_metrics(lm_fit, summarize = TRUE)
+metrics_lm <- collect_metrics(lm_fit, summarize = TRUE)
+
+Ergebnisse <- tibble(Model = "Linear Regression Model", RMSE = metrics_lm$mean[1], R2 = metrics_lm$mean[2])
 ```
 
 ### Plot model
 
 Visualize the model:
-
 ```{r}
 ggplot(df_train, aes(Temperatur, rentals)) + 
   geom_point(color = '#006EA1') + 
@@ -458,20 +465,11 @@ ggplot(df_train, aes(Temperatur, rentals)) +
   theme_light()
 ```
 
-### Speichere Ergebnisse in eine Tabelle
-```{r}
-metrics_lm <- collect_metrics(lm_fit, summarize = TRUE)
-
-Ergebnisse <- tibble(Model = "Linear Regression Model", RMSE = metrics_lm$mean[1], R2 = metrics_lm$mean[2])
-```
-
-
-## Natural regression spline
+## Natural spline regression
 
 ### Specify model
 
-Specify the linear regression model:
-
+In our second model we train a natural spline model using the lm engine.
 ```{r}
 lm_mod_sp <- 
   linear_reg() %>% 
@@ -479,8 +477,7 @@ lm_mod_sp <-
 ```
 
 
-We use the package [`recipe`](https://recipes.tidymodels.org) to prepare the data and tune the hyperparameter of the natural spline (`step_ns`): degrees of freedom (`deg_free`):
-
+We use a recipe to prepare the data and tune the hyperparameter of the natural spline (`step_ns`): degrees of freedom (`deg_free`):
 ```{r}
 spline_rec <-
   recipe(rentals ~ Temperatur, 
@@ -492,15 +489,12 @@ summary(spline_rec)
 ```
 
 ### Tuning
-
-Note that we can use `parameters()` to detect and collect the parameters that have been flagged for tuning:
-
+With parameters() we can detect the parameters that have been flagged for tuning:
 ```{r}
 parameters(spline_rec)
 ```
 
 We use `update()` to tune the parameter objects:
-
 ```{r}
 spline_param <-
   spline_rec %>%
@@ -511,18 +505,12 @@ spline_param <-
 spline_degree()
 ```
 
-### Train models
-
-We use grid search ([`grid_max_entropy`](https://dials.tidymodels.org/reference/grid_max_entropy.html)) to test different spline hyperparameters:
-
+### Train model
+We use grid search to test different spline hyperparameters. Combine the linear regression model with the natural spline:
 ```{r}
 spline_grid <- grid_max_entropy(spline_param, 
                                 size = 5)
-```
 
-Combine the linear regression model with the natural spline:
-
-```{r}
 spline_fit <- 
   tune_grid(lm_mod_sp, # linear regression model
             spline_rec,  # our recipe
@@ -533,28 +521,13 @@ collect_metrics(spline_fit, summarize = TRUE)
 ```
 
 ### Model evaluation
-
-Show the best results according to RMSE:
-
-```{r}
-show_best(spline_fit, metric = "rmse")
-```
-
-The `.metrics` column has all of the holdout performance estimates for each parameter value:
-
-```{r}
-spline_fit$.metrics[[1]]
-```
-
 To get the average metric value for each parameter combination, `collect_metrics()` can be used. The values in the *mean* column are the averages of the k-fold resamples: 
-
 ```{r}
 estimates <- collect_metrics(spline_fit)
 estimates
 ```
 
 The best RMSE values corresponded to:
-
 ```{r}
 rmse_vals <-
   estimates %>%
@@ -565,32 +538,28 @@ rmse_vals
 ```
 
 Smaller degrees of freedom values correspond to more linear functions and the grid search indicates that more linearity is better. 
-
 Relationship between the hyperparameter and RMSE:
-
 ```{r}
 autoplot(spline_fit, metric = "rmse")
 ```
 
-Nun erstellen wir ein Model mit dem besten Parameter (deg_free = 8)
-
+Now we create a model with the best parameter (deg_free = 10)
 ```{r}
 best_spline_rec <-
   recipe(rentals ~ Temperatur, 
                 data = df_train) %>%
   step_ns(Temperatur, 
-          deg_free = 8) 
+          deg_free = 10) 
 
 
 best_spline_fit <- 
   tune_grid(lm_mod_sp, # linear regression model
             best_spline_rec,  # our recipe
             resamples = cv_folds # k-fold cross-validation 
-            ) # grid search with spline parameters
+            )
 ```
 
-###Speichern der Werte in unsere Ergebnistabelle:
-
+The RMSE of our final natural spline model is 1770 with a standard error of 48. R2 averages 0.664. While the RMSE of our first model is a bit better, R2 for the Natural Spline model is slightly ahead.
 ```{r}
 collect_metrics(best_spline_fit, summarize = TRUE)
 
@@ -600,6 +569,9 @@ Ergebnisse <- Ergebnisse %>%
   add_row(Model = "Natural Spline Regression", RMSE = metrics_ns$mean[1], R2 = metrics_ns$mean[2])
 ```
 
+### Plot model
+
+As the RMSE and plot show, this more complex model brings little benefit to our data compared to linear regression.
 ```{r}
 ggplot(df_train, aes(Temperatur, rentals))+
   geom_point(color = '#006EA1')+
@@ -607,10 +579,10 @@ ggplot(df_train, aes(Temperatur, rentals))+
               formula=y~splines::bs(x, 4), se=FALSE, color = 'red')
 ```
 
-## xgboost
+## XGBoost
 
 ### Specify model
-
+As our third model we train a XGBoost model using the XGBoost engine and set mode to "regression".
 ```{r}
 xgb_spec <- 
   boost_tree() %>%
@@ -622,7 +594,7 @@ xgb_spec
 
 
 ### Fit model
-
+In this step we define the response variable (rentals) and the predictors (all predictor variables).
 ```{r}
 xgb_wflow <-
   workflow() %>%
@@ -633,26 +605,21 @@ xgb_wflow
 ```
 
 ### Train model
-
+The model is trained with resampling (ten folds (cv_folds)).
 ```{r}
 xgb_fit <- 
   xgb_wflow %>%
   fit_resamples(cv_folds)
 ```
 
-### Evaluate model
-
+### Model evaluation
+The RMSE of the folds ranges from 849 to 1111 with an average of 992 and a standard error of 24.4. R2 averages 0.893 which is a very good result.
 ```{r}
 # Performance measures for every fold
 collect_metrics(xgb_fit, summarize = FALSE)
 
 # Average performance accross all folds
 collect_metrics(xgb_fit, summarize = TRUE)
-```
-
-Speichern der Werte in unsere Ergebnistabelle:
-
-```{r}
 metrics_xg <- collect_metrics(xgb_fit, summarize = TRUE)
 
 Ergebnisse <- Ergebnisse %>%
@@ -662,20 +629,22 @@ Ergebnisse <- Ergebnisse %>%
 ## Lasso regression
 
 ### Setup recipe
-
+We create a recipe "bike_rec" for our data preprocessing.
 ```{r}
 bike_rec <-
   recipe(rentals ~ ., data = df_train) %>%
-  update_role(dateday, new_role = "ID") %>%
-  update_role(dauer, new_role = "ID2") %>%
+  update_role(dateday, new_role = "ID") %>% # we exclude dateday
+  update_role(dauer, new_role = "ID2") %>% # we exclude duration
   step_novel(all_nominal(), -all_outcomes()) %>%
-  step_dummy(all_predictors(), -all_numeric()) %>%
-  step_zv(all_predictors()) %>%
-  step_normalize(all_numeric(), -all_outcomes())
+  step_dummy(all_predictors(), -all_numeric()) %>% # create dummies for categorial variables
+  step_zv(all_predictors()) %>% # remove variables that contain only a single value
+  step_normalize(all_numeric(), -all_outcomes()) # this step is needed for the Lasso Regression
 ```
 
 ### Specify and fit model
+Lasso Regression is a regression method where, in contrast to linear regression, it is not necessary to decide beforehand which variables will be included in the model. Through so-called regularization or shrinkage methods, less relevant variables automatically become smaller and therefore less significant. Irrelevant variables can also be zeroed, whereby a variable selection is performed. For this reason we will do parameter tuning in this model.
 
+First we will get the results without tuning of any parameters.
 ```{r}
 lasso_spec <- linear_reg(penalty = 0.1, mixture = 1) %>%
   set_engine("glmnet")
@@ -693,7 +662,6 @@ lasso_fit %>%
 ```
 
 ### Tune lasso parameters
-
 ```{r}
 tune_spec <- linear_reg(penalty = tune(), mixture = 1) %>%
   set_engine("glmnet")
@@ -731,8 +699,7 @@ lasso_grid %>%
   theme(legend.position = "none")
 ```
 
-Modell mit bestem Penalty Wert:
-
+Model with best penalty value
 ```{r}
 lowest_rmse <- lasso_grid %>%
   select_best("rmse")
@@ -749,14 +716,12 @@ lowest_lasso_fit <- wf %>%
   add_model(lowest_lasso_spec) %>%
     fit_resamples(rentals ~ ., 
                 resamples = cv_folds)
-
-lowest_lasso_fit %>%
-  collect_metrics
 ```
 
-Speichern der Werte in unsere Ergebnistabelle:
-
+Model evaluation:
+Our tuning was very effective because the RMSE improved dramatically from 4896 to 1817. R2 is at 0.713.
 ```{r}
+collect_metrics(lowest_lasso_fit, summarize = TRUE)
 metrics_lasso <- collect_metrics(lowest_lasso_fit, summarize = TRUE)
 
 Ergebnisse <- Ergebnisse %>%
@@ -764,7 +729,7 @@ Ergebnisse <- Ergebnisse %>%
 ```
 
 ### Most important variables
-
+We can display the most important variables for the model via a vip plot.
 ```{r}
 final_lasso <- 
   finalize_workflow(
@@ -787,14 +752,14 @@ final_lasso %>%
 
 # Train final model
 
-## Ergebnisse vergleichen
-
+## Compare results
+The XGBoost model delivers by far the best values in the two key values RMSE and R2. So we will examine the data of the test set with this model.
 ```{r}
 plot_RMSE <-  Ergebnisse %>%
   ggplot(aes(x = Model, y = RMSE, fill = Model)) + 
   geom_col(show.legend = FALSE, width = 0.4) +
   scale_fill_manual(values=c("orange3", "orange3", "orange3", "dodgerblue")) +
-  labs(labels = FALSE, title = "Vergleich der RMSE und R2 Werte aller Modelle") +
+  labs(labels = FALSE, title = "Comparison of the RMSE and R2 values over all models") +
   theme_light() + 
   theme(axis.title.x=element_blank(),
         axis.text.x=element_blank(),
@@ -816,36 +781,52 @@ ggarrange(plot_RMSE, plot_R2,
           )
 ```
 
-## Finales Model auf Testdaten fitten
-
-Wie in vorheriger Grafik ersichtlich ist sind die entscheidenden Parameter RMSE und R2 beim XGBoost Model am besten.
-
+## Final model with test set data
 ```{r}
 finales_model <- last_fit(xgb_wflow, df_split)
 
-collect_metrics(finales_model)
+final_metrics_xgb <- collect_metrics(finales_model)
 ```
+
+## Summary
+As the results show, the performance of our XGBoost model on the train data is - as expected - slightly better than on the test data. But basically the results are very similar and therefore in our test it can be assumed that the model is robust and reliable.
+```{r}
+Ergebnisse_final <-        tibble(Model = "Final XGBoost", 
+                           RMSE = final_metrics_xgb$.estimate[1], 
+                           R2 = final_metrics_xgb$.estimate[2],
+                           )
+
+Ergebnisse_final <- Ergebnisse_final %>%
+  add_row(Model = "Training XGBoost", RMSE = metrics_xg$mean[1], R2 = metrics_xg$mean[2])
+
+Ergebnisse_final
+```
+
 
 ```{r}
 library(reshape2)
 
-tb_pred <- finales_model$.predictions
-
-tb_pred <- tb_pred[[1]] %>%
-  add_column(Temperatur = df_test$Temperatur)
-densityplot <- tb_pred
-
-tb_pred %>%
-  ggplot(aes(x = Temperatur, y = rentals)) +
-  geom_point() +
-  geom_point(aes(y = .pred, color = "123"), show.legend = FALSE) +
-  theme_light()
-
-densityplot <- data.frame(rentals=rnorm(100),.pred=rnorm(100,1,1))
-datadensity <- melt(densityplot)
-ggplot(datadensity,aes(x=value, fill=variable)) + geom_density(alpha=0.25)
-
+# tb_pred <- finales_model$.predictions
+# 
+# tb_pred <- tb_pred[[1]] %>%
+#   add_column(Temperatur = df_test$Temperatur)
+# densityplot <- tb_pred
+# 
 # tb_pred %>%
 #   ggplot(aes(x = Temperatur, y = rentals)) +
-#   geom_density(data = tb_pred, aes(y= .preds)) 
+#   geom_point() +
+#   geom_point(aes(y = .pred, color = "123"), show.legend = FALSE) +
+#   theme_light()
+# 
+# densityplot <- data.frame(rentals=rnorm(100),.pred=rnorm(100,1,1))
+# datadensity <- melt(densityplot)
+# ggplot(datadensity,aes(x=value, fill=variable)) + geom_density(alpha=0.25)
+# 
+# # tb_pred %>%
+# #   ggplot(aes(x = Temperatur, y = rentals)) +
+# #   geom_density(data = tb_pred, aes(y= .preds)) 
 ```
+
+# Deployment
+
+The deployment on the whole dataset and the prediction of future values is not part of this project.

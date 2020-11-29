@@ -5,8 +5,9 @@ author: "Victor Bucholtz"
 output:
  html_document:
   code_download: true
-  fig_height: 4
-  fig_width: 4
+  code_folding: hide
+  fig_height: 6
+  fig_width: 10
   highlight: tango
   number_sections: yes
   toc: yes
@@ -24,11 +25,11 @@ output:
 /* css code to change the look of the HTML-output */
   
 h1 {
-  color: #D0313C;
+  color: #323DD2;
   font-size: 200%;
   }
 h2 {
-  color: #D0313C;
+  color: #323DD2;
   font-size: 150%;
   }
 h3 {
@@ -67,7 +68,6 @@ library(stringi)
 # Import data
 
 Load the data from two different sources.
-
 ```{r}
 
 # Create the link
@@ -88,7 +88,6 @@ df_bike <- df_bike %>%
 ```
 
 # Data structure
-
 ```{r}
 
 # Take a look at the data
@@ -99,7 +98,6 @@ glimpse(df_dwd)
 ```
 
 Already in this step it is necessary to create additional data frames and connect the data sets with each other, since the investigations and analyses of the rentals should be measured on a daily numbers and are strongly linked to the weather data. To enable the linking of the data sets, we have to edit some data types and add variables which enable the connection.
-
 ```{r}
 
 # Change data types of variable "Temperatur" to numeric and "Stadt" to factor. Before "Messdatum" can be set as a date, we need to modify the string. 
@@ -142,8 +140,6 @@ df_tageswerte <-
 glimpse(df_tageswerte)
 
 ```
-
-# Save as RData file
 
 ```{r}
 

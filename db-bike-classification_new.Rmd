@@ -5,6 +5,7 @@ author: "Victor Bucholtz"
 output:
  html_document:
   code_download: true
+  code_folding: hide
   fig_height: 6
   fig_width: 10
   fig_align: center
@@ -25,11 +26,11 @@ output:
 /* css code to change the look of the HTML-output */
   
 h1 {
-  color: #D0313C;
+  color: #323DD2;
   font-size: 200%;
   }
 h2 {
-  color: #D0313C;
+  color: #323DD2;
   font-size: 150%;
   }
 h3 {
@@ -257,12 +258,13 @@ plot_duration <- outlier_data %>%
 ggarrange(plot_rentals, plot_duration, nrow = 2)
 ```
 
-# Modelle
+# Modeling
+In this chapter, we will build and train three models using the parsnip package: Logistic Regression with the glm engine, a Random Forest Model using the Ranger engine and a boosted tree model using XGBoost.
+As the setup for all models is the same, we will explain the individual steps only for the Logistic Regression.
+
 
 ## K-fold cross-validation
-
 Due to the amount of observations we prepare a 5-fold cross-validation
-
 ```{r}
 set.seed(123)
 
@@ -270,8 +272,6 @@ cv_folds <- vfold_cv(train_data, v=5, strata = freierTag)
 ```
 
 ## Logistic Regression
-In this chapter, we will build and train three models using the parsnip package: Logistic Regression with the glm engine, a Random Forest Model using the Ranger engine and a boosted tree model using XGBoost.
-As the setup for all models is the same, we will explain the individual steps only for the Logistic Regression.
 
 ### Set Engine
 Specification which package/system will be used for the model. In this case we train a logistic regression model using the glm engine.
@@ -593,4 +593,10 @@ Ergebnisse_final <- Ergebnisse_final %>%
                            )
 Ergebnisse_final
 ```
+
+# Deployment
+
+The deployment on the whole dataset and the prediction of future values is not part of this project.
+
+
 
