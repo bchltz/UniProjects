@@ -58,7 +58,6 @@ knitr::opts_chunk$set(
 # Setup
 
 Load packages
-
 ```{r}
 
 # Load packages
@@ -72,62 +71,37 @@ library(funModeling)
 library(splines)
 library(GGally)
 library(vip)
-library(glmnet)
 library(ggpubr)
 ```
 
 # Business understanding
 
 We want to develop a model that can predict the number of rentals of the "DB Call a bike" service based on the daily maximum temperature.
-We measure model performance with RMSE.
-
-Hier kommen noch die Pipelines
+Possible use cases could be maintenance planning or a determination of the minimum availability of bicycles per season.
+We measure our model performance using the key figure RMSE.
 
 # Data understanding
 
 ## Import data
 
-Load the data from two different sources and store them in a RData file for performance issues.
-
+Load the data file which contains our df_tageswerte data frame.
 ```{r}
-
 # Import the RData file which contains the df_tageswerte data set
 
-load(file = "/Users/victorbucholtz/Documents/Dokumente/University/01_Applied_Statistics/R/bike_dwd.RData")
+load(file = "bike_dwd.RData")
 
 ```
 
 ## Data structure
-
 ```{r}
-
 # Take a look at the data
 glimpse(df_tageswerte)
-
+table(df_tageswerte$CITY_RENTAL_ZONE)
 ```
-The data set has the following Variables:
-dateday = day of booking
-CITY_RENTAL_ZONE = Location (City) of the individual bike station
-rentals = amount of daily rentals
-dauer = mean duration of rentals for the specific day
-wochentag = weekday
-QN_3
-FX = Maximum of the wind peak
-FM = Average of the wind peak
-QN_4
-Niederschlag = Precipitation level
-RSKF = Precipitation type
-SDK = Sunshine duration daily total
-SHK_TAG = Snow height daily value	
-NM = Daily mean of the degree of coverage
-VPM = Daily average of steam pressure	
-PM = Daily average air pressure	
-TMK = Daily average temperature	
-UPM = Daily average of relative humidity	
-Temperatur = Daily maximum of the air temperature
-TNK = Daily minimum of air temperature in 2m height	
-TGK = Minimum air temperature on the ground at a height of 5cm
+We have 21 variables, most of them are "doubles". The data types of the set df_tageswerte are fine, we need to keep in mind that the variable "duration" is in a specific date format (date difference) and could be rather difficult to handle. We might adjust that if needed.
 
+"City_Rental_Zone" contains the cities where the bicycles were rented. The cities were already filtered to the big five cities (Berlin, Hamburg, Cologne, Frankfurt am Main and Munich) when the data set was prepared.
+Our key variables are "rentals" (number of rentals per day) and "Temperatur" (maximum daily temperature). It is probably worth taking a closer look at "Niederschlag" (amount of precipitation per day) and "Dauer" (average driving time per rental per day). The other features contain further weather data which we will not describe closer.
 
 ## Data splitting
 

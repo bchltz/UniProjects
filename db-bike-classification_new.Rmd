@@ -73,9 +73,7 @@ Load data file
 load(file = "bike_dwd.RData")
 
 # Import data sets for public and school holidays
-#df_feiertage <- read_csv("/Users/victorbucholtz/Documents/Dokumente/University/01_Applied_Statistics/R/Feiertage_Hamburg.csv")
 df_feiertage <- read_csv("Feiertage_Hamburg.csv")
-#df_schulferien <- read_csv("/Users/victorbucholtz/Documents/Dokumente/University/01_Applied_Statistics/R/Schulferien_Hamburg.csv")
 df_schulferien <- read_csv("Schulferien_Hamburg.csv")
 
 ```
@@ -128,6 +126,8 @@ Our prediction class for free is "frei", for weekend/holiday it is "nichtFrei".
 We measure our model performance using the key figure of the harmonic mean "F1" as in this fictitious example we prefer to choose the model which performs overall well.
 
 # Data Splitting
+
+Create training and test data:
 ```{r}
 set.seed(123)
 
@@ -140,6 +140,7 @@ test_data <- testing(split_data)
 # Recipe and functions
 
 ## Recipe
+We create a recipe "class_rec" for our data preprocessing. 
 ```{r}
 # Recipe definition
 class_rec <- 
@@ -269,8 +270,11 @@ cv_folds <- vfold_cv(train_data, v=5, strata = freierTag)
 ```
 
 ## Logistic Regression
+In this chapter, we will build and train three models using the parsnip package: Logistic Regression with the glm engine, a Random Forest Model using the Ranger engine and a boosted tree model using XGBoost.
+As the setup for all models is the same, we will explain the individual steps only for the Logistic Regression.
 
 ### Set Engine
+Specification which package/system will be used for the model. In this case we train a logistic regression model using the glm engine.
 ```{r}
 lr_mod <- 
   logistic_reg() %>% 
@@ -278,6 +282,7 @@ lr_mod <-
 ```
 
 ### Fit Model
+We create a workflow in which we add our model as well as our recipe "class_rec".
 ```{r}
 bike_wflow_lr_mod <- 
   workflow() %>% 
@@ -288,6 +293,7 @@ bike_wflow_lr_mod
 ```
 
 ### Train Model
+In this step we train our model with our training data. We use the k-fold cross-validation and have divided our data into 5 folds. We save the predictions so we can create our metrics later on.
 ```{r}
 bike_fit_lr_mode <- 
   bike_wflow_lr_mod %>% 
@@ -297,6 +303,7 @@ bike_fit_lr_mode
 ```
 
 ### Show and save results
+To evaluate our trained model we read out the values for "Precision", "Recall", "Accuracy", "ROC" and "F1" and have a look at the confusion matrix. For a better overview we create a table in which we enter the results.
 ```{r}
 # Predictions
 predictions_lr <- collect_predictions(bike_fit_lr_mode, summarize = TRUE)
@@ -330,6 +337,8 @@ Ergebnisse_class <- tibble(Model = "Logistische Regression",
                            fmeas = fmeas_lr
                            )
 ```
+Our precision in this model is 0.685, which means that 68.5% of the predictions marked as "free" are actually days off. Recall is 0.601, which means that our model has correctly identified 60.1% of all days off.
+The accuracy (0.794 -> 79.4%) is much higher, this could be due to the high amount of "true negative" predictions which of course have a positive influence on the accuracy.
 
 ### ROC graph
 ```{r}
@@ -408,6 +417,8 @@ Ergebnisse_class <- Ergebnisse_class %>%
                            fmeas = fmeas_rf
                            )
 ```
+Our precision in this model is 0.815, which means that 81.5% of the predictions marked as "free" are actually days off. Recall is 0.809, which means that our model has correctly identified 80.9% of all days off. These results are way better than in the Logistic Regression. 
+The accuracy was already very good in the Logistic Regression (79.4%) and is even better in the Random Forest Model with 88.5%.
 
 ### ROC graph
 ```{r}
@@ -486,7 +497,8 @@ Ergebnisse_class <- Ergebnisse_class %>%
                            fmeas = fmeas_xgb
                            )
 ```
-
+Our precision in this model is 0.812, which means that 81.2% of the predictions marked as "free" are actually days off. Recall is 0.841, which means that our model has correctly identified 84.1% of all days off. While the precision is slightly worse than in the Random Forest Model, the Recall is higher by a good amount.
+The accuracy is with 89.2% on the same level as for the Random Forest Model (88.5%).
 
 ### ROC
 ```{r}
@@ -503,8 +515,12 @@ In this model, the fluctuations are again significantly lower with a range of 0.
 
 # Evaluation and final model
 
-## Results of all models
-As our results show, the performance of the "XGBoost" model is best on the training data across almost all parameters. In the Business Understanding we have chosen "F1" as the selection parameter. So we will choose XGBoost and train and evaluate the test data with it.
+## Results & selecting final models
+As our results show, the performance of the "XGBoost" model is best on the training data across almost all parameters. If the business case requires higher "precision", the Random Forest Model could also be considered as the final model. In our model development we refrained from tuning with "Threshold", when adjusting this value the model selection could change again, as this of course has direct influence on the parameters (higher Threshold means higher Precision and lower Recall). 
+
+The accuracy is very similar over all models. These small differences show very well why accuracy is generally not a good indication of the quality of the model. The "disadvantage" of this parameter is that this value benefits from the many True Negative predictions. Of course, this is not bad per se, but it reduces the informative value of the accuracy. More meaningful is therefore the consideration of Recall and Precision.
+
+In the Business Understanding we have chosen "F1" as the selection parameter. So we will choose XGBoost and train and evaluate the test data with it.
 ```{r}
 Ergebnisse_class
 ```
@@ -539,6 +555,7 @@ Ergebnisse_final <- tibble(Model = "Final XGBoost",
 
 Ergebnisse_final
 ```
+As the results show, the performance of our XGBoost model on the test data is even better than on the training data in some parameters. But basically the results are very similar and therefore we can assume that the model is robust and reliable.
 
 ### ROC graph
 ```{r}
@@ -550,6 +567,7 @@ final_model %>%
   geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2, color = "#006EA1") +
   coord_equal()
 ```
+The area under the ROC curve (AUC) can be used as a summary of the model skill. In our final model, the value roc_auc is 0.955 which means that there is a chance of 95.5% that the model is able to distinguish between a free and a non-free day.
 
 ### PR curve
 ```{r}
@@ -560,6 +578,7 @@ final_model %>%
   geom_path(show.legend = FALSE, alpha = 0.6, size = 1, color = "#006EA1") +
   coord_equal()
 ```
+The PR curve is a good tool for classification problems which have an imbalance in the observations for each class. Our PR curve doesn´t indicate such a problem for our test data.
 
 ## Summary
 As the results show, the performance of our XGBoost model on the test data is even better than on the training data in some parameters. But basically the results are very similar and therefore in our test it can be assumed that the model is robust and reliable.
