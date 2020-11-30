@@ -7,7 +7,7 @@ output:
   code_download: true
   code_folding: hide
   fig_height: 6
-  fig_width: 10
+  fig_width: 8
   fig_align: center
   highlight: tango
   number_sections: yes
@@ -187,7 +187,7 @@ table(train_data$freierTag)
 ```{r}
 train_data %>%
   group_by(freierTag) %>%
-  summarize(rentals=sum(rentals))
+  dplyr::summarize(rentals=sum(rentals))
 
 1867011 / (1867011+4853468) # percentage of rentals on free days
 ```
@@ -197,7 +197,7 @@ Now we compare the mean duration (in minutes) for our category.
 ```{r}
 train_data %>%
   group_by(freierTag) %>%
-  summarize(dauer=mean(dauer))
+  dplyr::summarize(dauer=mean(dauer))
 ```
 While there are less rentals on free days, the mean duration is higher by 5.3 minutes per rental.
 
@@ -214,11 +214,12 @@ The mean temperatures of free and non-free days are (as expected) almost equal. 
 ```{r}
 train_data %>%
   group_by(freierTag) %>%
-  summarise(Temperatur = mean(Temperatur))
+  dplyr::summarise(Temperatur = mean(Temperatur))
 
 train_data %>%
   ggplot(aes(x = Temperatur)) + 
   geom_histogram(fill = "#006EA1", bins = 20) + 
+  ggtitle(label = "Temparature on free and non-free days") +
   theme_light() +
   facet_grid(facets = train_data$freierTag)
 ```
@@ -348,6 +349,7 @@ bike_fit_lr_mode %>%
   roc_curve(freierTag, .pred_frei) %>%
   ggplot(aes(1 - specificity, sensitivity, color = id)) +
   geom_abline(lty = 2, color = "gray80", size = 1.5) +
+  ggtitle(label = "ROC curve for the logistic regression model") +
   geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2) +
   coord_equal()
 ```
@@ -429,6 +431,7 @@ bike_fit_rf_mode %>%
   ggplot(aes(1 - specificity, sensitivity, color = id)) +
   geom_abline(lty = 2, color = "gray80", size = 1.5) +
   geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2) +
+  ggtitle(label = "ROC graph for the Random Forest Model") +
   coord_equal()
 ```
 Compared to our first model, the fluctuations of the Random Forest Model are visibly lower. Therefore, the individual folds seem to have a much smaller influence on the model performance. At first glance, the model seems more robust than the logistic regression model. The values for ROC are between 0.897 and 0.969 with a mean of 0.936, for accuracy between 0.853 and 0.919 with a mean of 0.885.
@@ -509,6 +512,7 @@ bike_fit_xgb_mode %>%
   ggplot(aes(1 - specificity, sensitivity, color = id)) +
   geom_abline(lty = 2, color = "gray80", size = 1.5) +
   geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2) +
+  ggtitle(label = "ROC graph for the XGBoost model") +
   coord_equal()
 ```
 In this model, the fluctuations are again significantly lower with a range of 0.913 - 0.953 (mean: 0.938) for ROC and 0.859 - 0.909 (mean: 0.892) for accuracy, making the model even more robust than the random forest model.
@@ -565,6 +569,7 @@ final_model %>%
   ggplot(aes(1 - specificity, sensitivity)) +
   geom_abline(lty = 2, color = "gray80", size = 1.5) +
   geom_path(show.legend = FALSE, alpha = 0.6, size = 1.2, color = "#006EA1") +
+  ggtitle(label = "ROC graph for the final XGBoost model") +
   coord_equal()
 ```
 The area under the ROC curve (AUC) can be used as a summary of the model skill. In our final model, the value roc_auc is 0.955 which means that there is a chance of 95.5% that the model is able to distinguish between a free and a non-free day.
@@ -576,12 +581,15 @@ final_model %>%
   pr_curve(freierTag, .pred_frei) %>%
   ggplot(aes(x = recall, y = precision)) +
   geom_path(show.legend = FALSE, alpha = 0.6, size = 1, color = "#006EA1") +
+  ggtitle(label = "PR graph for the final XGBoost model") +
   coord_equal()
 ```
 The PR curve is a good tool for classification problems which have an imbalance in the observations for each class. Our PR curve doesn´t indicate such a problem for our test data.
 
 ## Summary
 As the results show, the performance of our XGBoost model on the test data is even better than on the training data in some parameters. But basically the results are very similar and therefore in our test it can be assumed that the model is robust and reliable.
+
+As in our regression test it must be mentioned here as well that some of the predictors of our models are very difficult to predict itself. The prediction of weather data is generally very error-prone. Therefore, our model in the real world may be even less accurate than in our experiment with the test data. 
 ```{r}
 Ergebnisse_final <- Ergebnisse_final %>%
                            add_row(Model = "Training XGBoost", 
